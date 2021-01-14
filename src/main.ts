@@ -1,18 +1,28 @@
 import * as core from '@actions/core'
-import {wait} from './wait'
+import { Settings } from './settings'
+import { Coverage } from './coverage'
+import { GithubReporter } from './gh-reporter'
 
 async function run(): Promise<void> {
   try {
-    const ms: string = core.getInput('milliseconds')
-    core.debug(`Waiting ${ms} milliseconds ...`) // debug is only output if you set the secret `ACTIONS_RUNNER_DEBUG` to true
+    const settings = Settings.fromIO(core)
+    const coverage = await Coverage.fromReportFile(settings.reportFilePath)
+    const reporter = new GithubReporter({
+      token: settings.token,
+      threshold: settings.minThreshold,
+      coverage,
+    })
 
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+    await Promise.all([reporter.sendCoverageComment(), reporter.sendCheck()])
 
-    core.setOutput('time', new Date().toTimeString())
+    if (coverage.isPassThreshold(settings.minThreshold)) {
+      core.info(reporter.getWorkflowMessage())
+    } else {
+      core.setFailed(reporter.getWorkflowMessage())
+    }
   } catch (error) {
-    core.setFailed(error.message)
+    core.setFailed(error?.message || error)
+    return
   }
 }
 

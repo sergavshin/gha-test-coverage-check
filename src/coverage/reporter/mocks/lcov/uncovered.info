@@ -1,0 +1,17 @@
+TN:
+SF:/example.ts
+FN:1,example
+FNF:1
+FNH:0
+FNDA:0,example
+DA:1,1
+DA:2,0
+DA:3,0
+DA:5,0
+LF:4
+LH:1
+BRDA:2,0,0,0
+BRDA:2,0,1,0
+BRF:2
+BRH:0
+end_of_record

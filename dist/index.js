@@ -273,7 +273,7 @@ class GithubReporter {
     }
     getCoverageComment() {
         return [
-            `### ${this.getStatusIcon()} Coverage ${this.coverage.isEmpty() ? this.getCurrentPercentage() : ''}`,
+            `### ${this.getStatusIcon()} Coverage ${this.coverage.isEmpty() ? '' : this.getCurrentPercentage()}`,
             this.getStatusMessage(),
         ].join('\n');
     }

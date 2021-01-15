@@ -105,7 +105,7 @@ export class GithubReporter {
   getCoverageComment(): string {
     return [
       `### ${this.getStatusIcon()} Coverage ${
-        this.coverage.isEmpty() ? this.getCurrentPercentage() : ''
+        this.coverage.isEmpty() ? '' : this.getCurrentPercentage()
       }`,
       this.getStatusMessage(),
     ].join('\n')

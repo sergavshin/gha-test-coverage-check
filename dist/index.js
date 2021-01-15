@@ -257,6 +257,9 @@ class GithubReporter {
             : icons.negative;
     }
     getStatusMessage() {
+        if (this.coverage.isEmpty()) {
+            return 'No code to cover.';
+        }
         if (!this.coverage.isPassThreshold(this.threshold)) {
             const current = this.getCurrentPercentage();
             const required = this.getRequiredPercentage();
@@ -270,7 +273,7 @@ class GithubReporter {
     }
     getCoverageComment() {
         return [
-            `### ${this.getStatusIcon()} Coverage ${this.getCurrentPercentage()}`,
+            `### ${this.getStatusIcon()} Coverage ${this.coverage.isEmpty() ? this.getCurrentPercentage() : ''}`,
             this.getStatusMessage(),
         ].join('\n');
     }

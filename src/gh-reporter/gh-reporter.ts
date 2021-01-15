@@ -83,6 +83,10 @@ export class GithubReporter {
   }
 
   private getStatusMessage(): string {
+    if (this.coverage.isEmpty()) {
+      return 'No code to cover.'
+    }
+
     if (!this.coverage.isPassThreshold(this.threshold)) {
       const current = this.getCurrentPercentage()
       const required = this.getRequiredPercentage()
@@ -100,7 +104,9 @@ export class GithubReporter {
 
   getCoverageComment(): string {
     return [
-      `### ${this.getStatusIcon()} Coverage ${this.getCurrentPercentage()}`,
+      `### ${this.getStatusIcon()} Coverage ${
+        this.coverage.isEmpty() ? this.getCurrentPercentage() : ''
+      }`,
       this.getStatusMessage(),
     ].join('\n')
   }

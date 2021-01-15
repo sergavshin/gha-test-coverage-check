@@ -1,4 +1,3 @@
-import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { Coverage } from '../coverage'
 import { formatter } from './formatter'
@@ -137,14 +136,6 @@ export class GithubReporter {
 
       return
     }
-
-    const checklist = await this.octokit.checks.listForRef({
-      owner: github.context.repo.owner,
-      repo: github.context.repo.repo,
-      ref: github.context.ref,
-    })
-
-    core.info(JSON.stringify(checklist.data, null, 2))
 
     await this.octokit.checks.create({
       name: 'Coverage',

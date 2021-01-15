@@ -208,7 +208,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GithubReporter = void 0;
-const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
 const formatter_1 = __nccwpck_require__(3823);
 const icons = {
@@ -304,12 +303,6 @@ class GithubReporter {
                 });
                 return;
             }
-            const checklist = yield this.octokit.checks.listForRef({
-                owner: github.context.repo.owner,
-                repo: github.context.repo.repo,
-                ref: github.context.ref,
-            });
-            core.info(JSON.stringify(checklist.data, null, 2));
             yield this.octokit.checks.create({
                 name: 'Coverage',
                 repo: github.context.repo.repo,

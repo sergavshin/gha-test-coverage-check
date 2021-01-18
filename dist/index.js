@@ -285,7 +285,6 @@ class GithubReporter {
             }
             const pr = this.getPullRequest();
             const comment = this.getCoverageComment();
-            core.info('Create comment');
             yield this.octokit.issues.createComment({
                 repo: github.context.repo.repo,
                 owner: github.context.repo.owner,
@@ -297,37 +296,55 @@ class GithubReporter {
     sendCheck() {
         return __awaiter(this, void 0, void 0, function* () {
             const annotations = yield this.getAnnotations();
-            core.info(`Total annotations ${annotations.length}`);
-            try {
-                if (annotations.length === 0) {
-                    yield this.octokit.checks.create({
-                        name: 'Coverage',
-                        repo: github.context.repo.repo,
-                        owner: github.context.repo.owner,
-                        head_sha: this.getSha(),
-                        status: 'completed',
-                        conclusion: 'success',
-                    });
-                    return;
-                }
-                const chunk = annotations.slice(0, 50);
-                core.info(`Send annotations chunk of ${chunk.length} elements`);
+            if (annotations.length === 0) {
                 yield this.octokit.checks.create({
                     name: 'Coverage',
                     repo: github.context.repo.repo,
                     owner: github.context.repo.owner,
                     head_sha: this.getSha(),
                     status: 'completed',
-                    conclusion: 'failure',
+                    conclusion: 'success',
+                });
+                return;
+            }
+            const chunks = annotations.reduce((acc, annotation) => {
+                const chunk = acc[acc.length - 1];
+                if (chunk === undefined) {
+                    return [[annotation]];
+                }
+                if (chunk.length < 50) {
+                    chunk.push(annotation);
+                }
+                else {
+                    acc.push([annotation]);
+                }
+                return acc;
+            }, []);
+            const [first, ...rest] = chunks;
+            const check = yield this.octokit.checks.create({
+                name: 'Coverage',
+                repo: github.context.repo.repo,
+                owner: github.context.repo.owner,
+                head_sha: this.getSha(),
+                status: 'completed',
+                conclusion: 'failure',
+                output: {
+                    title: 'Coverage report',
+                    summary: `${annotations.length} error(s) found`,
+                    annotations: first,
+                },
+            });
+            for (const chunk of rest) {
+                yield this.octokit.checks.update({
+                    check_run_id: check.data.id,
+                    repo: github.context.repo.repo,
+                    owner: github.context.repo.owner,
                     output: {
                         title: 'Coverage report',
                         summary: `${annotations.length} error(s) found`,
                         annotations: chunk,
                     },
                 });
-            }
-            catch (error) {
-                throw new Error(`Cannot create coverage check. Error: ${error.message}`);
             }
         });
     }
@@ -351,10 +368,7 @@ class GithubReporter {
     getAnnotations() {
         return __awaiter(this, void 0, void 0, function* () {
             const removeBasename = (path) => path.replace(`${process.cwd()}/`, '');
-            core.info('Create annotations...');
             const files = yield this.fetchPRFiles();
-            core.info(`Total lines: ${this.coverage.getUncoveredLines().length}`);
-            core.info(`Total files: ${files.length}`);
             return this.coverage
                 .getUncoveredLines()
                 .flatMap(line => {

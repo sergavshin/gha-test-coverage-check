@@ -5,6 +5,7 @@ import { GithubReporter } from './gh-reporter'
 
 async function run(): Promise<void> {
   try {
+    core.info('Running...')
     const settings = Settings.fromIO(core)
     const coverage = await Coverage.fromReportFile(settings.reportFilePath)
     const reporter = new GithubReporter({
@@ -13,6 +14,7 @@ async function run(): Promise<void> {
       coverage,
     })
 
+    core.info('Sending check and comment...')
     await Promise.all([reporter.sendCoverageComment(), reporter.sendCheck()])
 
     if (coverage.isPassThreshold(settings.minThreshold)) {
@@ -23,6 +25,8 @@ async function run(): Promise<void> {
   } catch (error) {
     core.setFailed(error?.message || error)
     return
+  } finally {
+    core.info('Done!')
   }
 }
 

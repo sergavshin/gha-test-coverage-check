@@ -10,10 +10,10 @@ async function run(): Promise<void> {
     const reporter = new GithubReporter({
       token: settings.token,
       threshold: settings.minThreshold,
-      coverage,
     })
 
-    await Promise.all([reporter.sendCoverageComment(), reporter.sendCheck()])
+    await reporter.useCoverage(coverage)
+    await reporter.sendReport()
 
     if (coverage.isPassThreshold(settings.minThreshold)) {
       core.info(reporter.getWorkflowMessage())

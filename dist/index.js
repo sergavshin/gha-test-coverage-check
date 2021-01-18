@@ -216,9 +216,10 @@ const icons = {
 };
 class GithubReporter {
     constructor(params) {
-        this.threshold = params.threshold;
-        this.coverage = params.coverage;
         this.octokit = github.getOctokit(params.token);
+        this.coverage = null;
+        this.threshold = params.threshold;
+        this.coverageAnnotations = [];
     }
     isPullRequest() {
         return github.context.payload.pull_request !== undefined;
@@ -235,47 +236,60 @@ class GithubReporter {
             ? this.getPullRequest().head.sha
             : github.context.sha;
     }
-    createCoverageMessage() {
-        if (!this.coverage.isPassThreshold(this.threshold)) {
-            const current = formatter_1.formatter.percentage(this.coverage.getPercentage());
-            const required = formatter_1.formatter.percentage(this.threshold);
-            return `${icons.negative} Code doesn't covered enough.
-        Current: ${current}, required: ${this.threshold === 100 ? '' : '>='} ${required}
-      `;
+    useCoverage(coverage) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.coverage = coverage;
+            this.coverageAnnotations = yield this.getAnnotations(coverage);
+        });
+    }
+    getCoverage() {
+        if (this.coverage === null) {
+            throw new Error(`Coverage is not setup`);
         }
-        return `${icons.positive} All code covered!`;
+        return this.coverage;
     }
-    getCurrentPercentage() {
-        return formatter_1.formatter.percentage(this.coverage.getPercentage());
+    isPRCoverageOk() {
+        return this.coverageAnnotations.length === 0;
     }
-    getRequiredPercentage() {
-        return formatter_1.formatter.percentage(this.threshold);
+    isNoCodeToCover() {
+        return this.getCoverage().isEmpty();
     }
     getStatusIcon() {
-        return this.coverage.isPassThreshold(this.threshold)
-            ? icons.positive
-            : icons.negative;
+        return this.isPRCoverageOk() ? icons.positive : icons.negative;
     }
     getStatusMessage() {
-        if (this.coverage.isEmpty()) {
+        if (this.isNoCodeToCover()) {
             return 'No code to cover.';
         }
-        if (!this.coverage.isPassThreshold(this.threshold)) {
-            const current = this.getCurrentPercentage();
-            const required = this.getRequiredPercentage();
-            const prefix = this.threshold === 100 ? '' : '>= ';
-            return `Code doesn't covered enough. Current: ${current}, required: ${prefix}${required}`;
+        if (!this.isPRCoverageOk()) {
+            return `PR contains uncovered code!`;
         }
         return `All code covered!`;
+    }
+    getStatusHeader() {
+        return `### Coverage report ${this.getStatusIcon()}`;
+    }
+    getStatusFooter() {
+        const coverage = this.getCoverage();
+        const current = formatter_1.formatter.percentage(coverage.getPercentage());
+        const required = formatter_1.formatter.percentage(this.threshold);
+        return `> _Current: ${current}. Required: ${required}_`;
     }
     getWorkflowMessage() {
         return `${this.getStatusIcon()} ${this.getStatusMessage()}`;
     }
     getCoverageComment() {
         return [
-            `### ${this.getStatusIcon()} Coverage ${this.coverage.isEmpty() ? '' : this.getCurrentPercentage()}`,
+            '<!-- coverage-report -->',
+            this.getStatusHeader(),
             this.getStatusMessage(),
+            this.getStatusFooter(),
         ].join('\n');
+    }
+    sendReport() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield Promise.all([this.sendCoverageComment(), this.sendCheck()]);
+        });
     }
     sendCoverageComment() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -294,10 +308,9 @@ class GithubReporter {
     }
     sendCheck() {
         return __awaiter(this, void 0, void 0, function* () {
-            const annotations = this.getAnnotations();
-            if (annotations.length === 0) {
+            if (this.coverageAnnotations.length === 0) {
                 yield this.octokit.checks.create({
-                    name: 'Coverage',
+                    name: 'Coverage report',
                     repo: github.context.repo.repo,
                     owner: github.context.repo.owner,
                     head_sha: this.getSha(),
@@ -306,29 +319,86 @@ class GithubReporter {
                 });
                 return;
             }
-            yield this.octokit.checks.create({
-                name: 'Coverage',
+            const chunks = this.coverageAnnotations.reduce((acc, annotation) => {
+                const chunk = acc[acc.length - 1];
+                if (chunk === undefined) {
+                    return [[annotation]];
+                }
+                if (chunk.length < 50) {
+                    chunk.push(annotation);
+                }
+                else {
+                    acc.push([annotation]);
+                }
+                return acc;
+            }, []);
+            const [first, ...rest] = chunks;
+            const title = 'PR coverage check';
+            const check = yield this.octokit.checks.create({
+                name: 'Coverage report',
                 repo: github.context.repo.repo,
                 owner: github.context.repo.owner,
                 head_sha: this.getSha(),
                 status: 'completed',
                 conclusion: 'failure',
                 output: {
-                    title: 'Coverage report',
-                    summary: `${annotations.length} error(s) found`,
-                    annotations: this.getAnnotations(),
+                    title,
+                    summary: `${this.coverageAnnotations.length} error(s) found`,
+                    annotations: first,
                 },
             });
+            for (const chunk of rest) {
+                yield this.octokit.checks.update({
+                    check_run_id: check.data.id,
+                    repo: github.context.repo.repo,
+                    owner: github.context.repo.owner,
+                    output: {
+                        title,
+                        summary: `${this.coverageAnnotations.length} error(s) found`,
+                        annotations: chunk,
+                    },
+                });
+            }
         });
     }
-    getAnnotations() {
-        return this.coverage.getUncoveredLines().map(line => ({
-            path: line.file.replace(`${process.cwd()}/`, ''),
-            start_line: line.number,
-            end_line: line.number,
-            annotation_level: 'failure',
-            message: 'Uncovered line',
-        }));
+    fetchPRFiles() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const pr = this.getPullRequest();
+            try {
+                const response = yield this.octokit.pulls.listFiles({
+                    pull_number: pr.number,
+                    owner: github.context.repo.owner,
+                    repo: github.context.repo.repo,
+                });
+                return response.data.map(f => ({ name: f.filename, status: f.status }));
+            }
+            catch (error) {
+                throw new Error(`Cannot fetch pr files list. Error: ${error.message}`);
+            }
+        });
+    }
+    getAnnotations(coverage) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const removeBasename = (path) => path.replace(`${process.cwd()}/`, '');
+            const files = yield this.fetchPRFiles();
+            return coverage
+                .getUncoveredLines()
+                .flatMap(line => {
+                const path = removeBasename(line.file);
+                const file = files.find(f => f.name === path);
+                if (file === undefined) {
+                    return [];
+                }
+                return {
+                    path,
+                    start_line: line.number,
+                    end_line: line.number,
+                    annotation_level: 'failure',
+                    message: 'Uncovered line',
+                };
+            })
+                .map((annotation, idx, all) => (Object.assign(Object.assign({}, annotation), { message: `${annotation.message} (${idx + 1}/${all.length})` })));
+        });
     }
 }
 exports.GithubReporter = GithubReporter;
@@ -395,9 +465,9 @@ function run() {
             const reporter = new gh_reporter_1.GithubReporter({
                 token: settings.token,
                 threshold: settings.minThreshold,
-                coverage,
             });
-            yield Promise.all([reporter.sendCoverageComment(), reporter.sendCheck()]);
+            yield reporter.useCoverage(coverage);
+            yield reporter.sendReport();
             if (coverage.isPassThreshold(settings.minThreshold)) {
                 core.info(reporter.getWorkflowMessage());
             }

@@ -1,3 +1,4 @@
+import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { Coverage } from '../coverage'
 import { formatter } from './formatter'
@@ -21,6 +22,11 @@ interface Annotation {
   end_line: number
   annotation_level: 'failure' | 'notice' | 'warning'
   message: string
+}
+
+interface PRFile {
+  name: string
+  status: string
 }
 
 export class GithubReporter {
@@ -119,6 +125,8 @@ export class GithubReporter {
     const pr = this.getPullRequest()
     const comment = this.getCoverageComment()
 
+    core.info('Create comment')
+
     await this.octokit.issues.createComment({
       repo: github.context.repo.repo,
       owner: github.context.repo.owner,
@@ -128,43 +136,94 @@ export class GithubReporter {
   }
 
   async sendCheck(): Promise<void> {
-    const annotations = this.getAnnotations()
+    const annotations = await this.getAnnotations()
 
-    if (annotations.length === 0) {
+    core.info(`Total annotations ${annotations.length}`)
+
+    try {
+      if (annotations.length === 0) {
+        await this.octokit.checks.create({
+          name: 'Coverage',
+          repo: github.context.repo.repo,
+          owner: github.context.repo.owner,
+          head_sha: this.getSha(),
+          status: 'completed',
+          conclusion: 'success',
+        })
+
+        return
+      }
+
+      const chunk = annotations.slice(0, 50)
+
+      core.info(`Send annotations chunk of ${chunk.length} elements`)
+
       await this.octokit.checks.create({
         name: 'Coverage',
         repo: github.context.repo.repo,
         owner: github.context.repo.owner,
         head_sha: this.getSha(),
         status: 'completed',
-        conclusion: 'success',
+        conclusion: 'failure',
+        output: {
+          title: 'Coverage report',
+          summary: `${annotations.length} error(s) found`,
+          annotations: chunk,
+        },
       })
-
-      return
+    } catch (error) {
+      throw new Error(`Cannot create coverage check. Error: ${error.message}`)
     }
-
-    await this.octokit.checks.create({
-      name: 'Coverage',
-      repo: github.context.repo.repo,
-      owner: github.context.repo.owner,
-      head_sha: this.getSha(),
-      status: 'completed',
-      conclusion: 'failure',
-      output: {
-        title: 'Coverage report',
-        summary: `${annotations.length} error(s) found`,
-        annotations: this.getAnnotations(),
-      },
-    })
   }
 
-  getAnnotations(): Annotation[] {
-    return this.coverage.getUncoveredLines().map(line => ({
-      path: line.file.replace(`${process.cwd()}/`, ''),
-      start_line: line.number,
-      end_line: line.number,
-      annotation_level: 'failure',
-      message: 'Uncovered line',
-    }))
+  async fetchPRFiles(): Promise<PRFile[]> {
+    const pr = this.getPullRequest()
+    core.info('Fetch pr files')
+    try {
+      const response = await this.octokit.pulls.listFiles({
+        pull_number: pr.number,
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+      })
+
+      return response.data.map(f => ({ name: f.filename, status: f.status }))
+    } catch (error) {
+      throw new Error(`Cannot fetch pr files list. Error: ${error.message}`)
+    }
+  }
+
+  async getAnnotations(): Promise<Annotation[]> {
+    const removeBasename = (path: string): string =>
+      path.replace(`${process.cwd()}/`, '')
+
+    core.info('Create annotations...')
+
+    const files = await this.fetchPRFiles()
+
+    core.info(`Total lines: ${this.coverage.getUncoveredLines().length}`)
+    core.info(`Total files: ${files.length}`)
+
+    return this.coverage
+      .getUncoveredLines()
+      .flatMap(line => {
+        const path = removeBasename(line.file)
+        const file = files.find(f => f.name === path)
+
+        if (file === undefined) {
+          return []
+        }
+
+        return {
+          path,
+          start_line: line.number,
+          end_line: line.number,
+          annotation_level: 'failure',
+          message: 'Uncovered line',
+        } as const
+      })
+      .map((annotation, idx, all) => ({
+        ...annotation,
+        message: `${annotation.message} (${idx + 1}/${all.length})`,
+      }))
   }
 }

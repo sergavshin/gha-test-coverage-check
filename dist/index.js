@@ -208,6 +208,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GithubReporter = void 0;
+const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
 const formatter_1 = __nccwpck_require__(3823);
 const icons = {
@@ -284,6 +285,7 @@ class GithubReporter {
             }
             const pr = this.getPullRequest();
             const comment = this.getCoverageComment();
+            core.info('Create comment');
             yield this.octokit.issues.createComment({
                 repo: github.context.repo.repo,
                 owner: github.context.repo.owner,
@@ -294,41 +296,83 @@ class GithubReporter {
     }
     sendCheck() {
         return __awaiter(this, void 0, void 0, function* () {
-            const annotations = this.getAnnotations();
-            if (annotations.length === 0) {
+            const annotations = yield this.getAnnotations();
+            core.info(`Total annotations ${annotations.length}`);
+            try {
+                if (annotations.length === 0) {
+                    yield this.octokit.checks.create({
+                        name: 'Coverage',
+                        repo: github.context.repo.repo,
+                        owner: github.context.repo.owner,
+                        head_sha: this.getSha(),
+                        status: 'completed',
+                        conclusion: 'success',
+                    });
+                    return;
+                }
+                const chunk = annotations.slice(0, 50);
+                core.info(`Send annotations chunk of ${chunk.length} elements`);
                 yield this.octokit.checks.create({
                     name: 'Coverage',
                     repo: github.context.repo.repo,
                     owner: github.context.repo.owner,
                     head_sha: this.getSha(),
                     status: 'completed',
-                    conclusion: 'success',
+                    conclusion: 'failure',
+                    output: {
+                        title: 'Coverage report',
+                        summary: `${annotations.length} error(s) found`,
+                        annotations: chunk,
+                    },
                 });
-                return;
             }
-            yield this.octokit.checks.create({
-                name: 'Coverage',
-                repo: github.context.repo.repo,
-                owner: github.context.repo.owner,
-                head_sha: this.getSha(),
-                status: 'completed',
-                conclusion: 'failure',
-                output: {
-                    title: 'Coverage report',
-                    summary: `${annotations.length} error(s) found`,
-                    annotations: this.getAnnotations(),
-                },
-            });
+            catch (error) {
+                throw new Error(`Cannot create coverage check. Error: ${error.message}`);
+            }
+        });
+    }
+    fetchPRFiles() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const pr = this.getPullRequest();
+            core.info('Fetch pr files');
+            try {
+                const response = yield this.octokit.pulls.listFiles({
+                    pull_number: pr.number,
+                    owner: github.context.repo.owner,
+                    repo: github.context.repo.repo,
+                });
+                return response.data.map(f => ({ name: f.filename, status: f.status }));
+            }
+            catch (error) {
+                throw new Error(`Cannot fetch pr files list. Error: ${error.message}`);
+            }
         });
     }
     getAnnotations() {
-        return this.coverage.getUncoveredLines().map(line => ({
-            path: line.file.replace(`${process.cwd()}/`, ''),
-            start_line: line.number,
-            end_line: line.number,
-            annotation_level: 'failure',
-            message: 'Uncovered line',
-        }));
+        return __awaiter(this, void 0, void 0, function* () {
+            const removeBasename = (path) => path.replace(`${process.cwd()}/`, '');
+            core.info('Create annotations...');
+            const files = yield this.fetchPRFiles();
+            core.info(`Total lines: ${this.coverage.getUncoveredLines().length}`);
+            core.info(`Total files: ${files.length}`);
+            return this.coverage
+                .getUncoveredLines()
+                .flatMap(line => {
+                const path = removeBasename(line.file);
+                const file = files.find(f => f.name === path);
+                if (file === undefined) {
+                    return [];
+                }
+                return {
+                    path,
+                    start_line: line.number,
+                    end_line: line.number,
+                    annotation_level: 'failure',
+                    message: 'Uncovered line',
+                };
+            })
+                .map((annotation, idx, all) => (Object.assign(Object.assign({}, annotation), { message: `${annotation.message} (${idx + 1}/${all.length})` })));
+        });
     }
 }
 exports.GithubReporter = GithubReporter;

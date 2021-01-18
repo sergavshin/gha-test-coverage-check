@@ -37,5 +37,5 @@ jobs:
       - uses: ./
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          min_threshold: '100'
+          min_threshold: 99
           report_file_path: './lcov.info'

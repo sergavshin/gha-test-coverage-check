@@ -168,7 +168,7 @@ export class GithubReporter {
         output: {
           title: 'Coverage report',
           summary: `${annotations.length} error(s) found`,
-          annotations: chunk,
+          annotations: [chunk[0]],
         },
       })
     } catch (error) {

@@ -468,7 +468,7 @@ function run() {
             });
             yield reporter.useCoverage(coverage);
             yield reporter.sendReport();
-            if (coverage.isPassThreshold(settings.minThreshold)) {
+            if (reporter.isPRCoverageOk()) {
                 core.info(reporter.getWorkflowMessage());
             }
             else {

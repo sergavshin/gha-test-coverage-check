@@ -15,7 +15,7 @@ async function run(): Promise<void> {
     await reporter.useCoverage(coverage)
     await reporter.sendReport()
 
-    if (coverage.isPassThreshold(settings.minThreshold)) {
+    if (reporter.isPRCoverageOk()) {
       core.info(reporter.getWorkflowMessage())
     } else {
       core.setFailed(reporter.getWorkflowMessage())

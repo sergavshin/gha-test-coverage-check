@@ -39,7 +39,9 @@ class Coverage {
     getUncoveredLines() {
         return this.report.files
             .filter(file => file.lines.found > file.lines.hit)
-            .flatMap(file => file.lines.details.map(detail => ({
+            .flatMap(file => file.lines.details
+            .filter(detail => detail.hit === 0)
+            .map(detail => ({
             file: file.file,
             number: detail.line,
         })));

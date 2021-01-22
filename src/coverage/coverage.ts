@@ -31,10 +31,12 @@ export class Coverage {
     return this.report.files
       .filter(file => file.lines.found > file.lines.hit)
       .flatMap(file =>
-        file.lines.details.map(detail => ({
-          file: file.file,
-          number: detail.line,
-        })),
+        file.lines.details
+          .filter(detail => detail.hit === 0)
+          .map(detail => ({
+            file: file.file,
+            number: detail.line,
+          })),
       )
   }
 
